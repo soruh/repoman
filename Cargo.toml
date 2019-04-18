@@ -1,0 +1,12 @@
+[package]
+name = "repoman"
+version = "0.1.0"
+authors = ["soruh <mail@soruh.de>"]
+edition = "2018"
+
+[dependencies]
+clap = {version = "~2.27.0", features = ["yaml"]}
+config = "0.9"
+serde_derive = "^1.0.8"
+serde = "^1.0.8"
+

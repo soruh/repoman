@@ -1,0 +1,46 @@
+name: repoman
+version: "1.0"
+author: soruh
+about: An open-source repository manager
+args:
+    - config:
+        short: c
+        long: config
+        help: Sets a custom config file
+        takes_value: true
+        value_name: FILE
+    - verbose:
+        short: v
+        multiple: true
+        help: Sets the level of verbosity
+subcommands:
+    - init:
+        about: init a repository as NAME
+        args:
+            - name:
+                help: sets the NAME with which the repository should be identified
+                required: true
+                value_name: NAME
+            - template:
+                short: t
+                long: template
+                help: Sets which template to use
+                takes_value: true
+                value_name: TEMPLATE
+
+
+    - convert:
+        about: create a new repository
+        args:
+            - folder:
+                help: sets the FOLDER which should be converted
+                required: true     
+                value_name: FOLDER
+            - name:
+                short: "n"
+                long: name
+                help: Sets the repository name
+                takes_value: true
+                value_name: NAME
+    - templates:
+        about: list available templates
