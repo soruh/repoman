@@ -7,7 +7,7 @@ use std::process::Command;
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
-    debug: bool,
+    repo_path: String,
 }
 
 fn load_config_path(s: &mut Config, config_path: &str) {
@@ -29,7 +29,7 @@ fn copy_default_config(config_path: &str) {
     let exe_path = env::current_exe().expect("failed to get executable path");
     let default_config_path = exe_path
         .parent()
-        .expect("WTF")
+        .unwrap()
         .to_path_buf()
         .join("../../default.config")
         .canonicalize()
@@ -43,11 +43,39 @@ fn copy_default_config(config_path: &str) {
 }
 
 impl Settings {
+    pub fn insert_home_dir(&mut self) {
+        let home = match env::var("HOME") {
+            Ok(home) => Some(home),
+            Err(_) => None,
+        };
+
+
+        loop{ //TODO: expand to all paths
+            // since repo_path is the only one for now, this is fine
+
+
+            if self.repo_path.find("~") == None {
+                continue;
+            }
+
+            // TODO: check if path is local (no method in "url")
+
+            match home {
+                None => panic!("a config path references '~', but $HOME is not set"),
+                Some(home) => {
+                    self.repo_path = self.repo_path.replace("~", home.as_ref());
+                }
+            }
+
+            break;
+        }
+    }
+
     pub fn new<'a>() -> Self {
         let mut config_paths = vec!["/etc/repoman"];
 
         let mut path1 = String::new();
-        let mut path2 = String::new(); //TODO: can this be in the if scope somehow?
+        let mut path2 = String::new(); //TODO: can this be inside of the if scope somehow?
 
         let home = env::var("HOME");
         if let Ok(home) = home {
@@ -76,7 +104,7 @@ impl Settings {
             load_config_path(&mut s, config_path.as_ref());
         } else {
             eprintln!("no config found.");
-            eprintln!("please choose one of the following locations, to create one:");
+            eprintln!("please choose one of the following locations to create one:");
 
             for i in 0..config_paths.len() {
                 eprintln!("{}: {}", i, config_paths[i]);
@@ -104,7 +132,7 @@ impl Settings {
                 config_path = Some(config_paths[path_num].to_string());
                 break;
             }
-            let config_path = config_path.expect("WTF");
+            let config_path = config_path.unwrap();
             copy_default_config(config_path.as_ref());
             load_config_path(&mut s, &config_path.as_ref());
         }
