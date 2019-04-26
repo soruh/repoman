@@ -7,25 +7,26 @@ use std::process::Command;
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
-    repo_path: String,
+    pub repo_path: String,
+    pub config_path: String,
 }
 
-fn load_config_path(s: &mut Config, config_path: &str) {
+fn load_config_path(s: &mut Config, config_path: &str) -> Result<(), String> {
     if let Err(err) = s.set("config_path", config_path.as_ref()) {
-        eprintln!("failed to set config_path: \n{:#?}", err);
-        std::process::exit(1);
+        return Err(format!("failed to set config_path: \n{:#?}", err));
     }
 
     let mut config_folder = String::from(config_path);
-    config_folder.push_str("/config.toml");
+    config_folder.push_str("config.toml");
 
     if let Err(error) = s.merge(File::with_name(config_folder.as_ref())) {
-        eprintln!("failed to load config:\n{:#?}", error);
-        std::process::exit(1);
+        return Err(format!("failed to load config:\n{:#?}", error));
     }
+
+    Ok(())
 }
 
-fn copy_default_config(config_path: &str) {
+fn copy_default_config(config_path: &str) -> Result<(), String> {
     let exe_path = env::current_exe().expect("failed to get executable path");
     let default_config_path = exe_path
         .parent()
@@ -36,23 +37,31 @@ fn copy_default_config(config_path: &str) {
         .expect("failed to normalize default config path");
     fs::create_dir_all(&config_path).expect("failed to mkdir");
 
-    Command::new("cp")
+    let output = Command::new("cp")
         .args(&["-Tr", &default_config_path.to_string_lossy(), config_path])
         .output()
         .expect("failed to copy default config");
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "failed to copy default config:\n {:?}",
+            output.stderr
+        ))
+    }
 }
 
 impl Settings {
-    pub fn insert_home_dir(&mut self) {
+    pub fn insert_home_dir(&mut self) -> Result<(), String> {
         let home = match env::var("HOME") {
             Ok(home) => Some(home),
             Err(_) => None,
         };
 
-
-        loop{ //TODO: expand to all paths
+        loop {
+            //TODO: expand to all paths
             // since repo_path is the only one for now, this is fine
-
 
             if self.repo_path.find("~") == None {
                 continue;
@@ -61,7 +70,11 @@ impl Settings {
             // TODO: check if path is local (no method in "url")
 
             match home {
-                None => panic!("a config path references '~', but $HOME is not set"),
+                None => {
+                    return Err(format!(
+                        "a configured path references '~', but $HOME is not set"
+                    ))
+                }
                 Some(home) => {
                     self.repo_path = self.repo_path.replace("~", home.as_ref());
                 }
@@ -69,10 +82,11 @@ impl Settings {
 
             break;
         }
+        Ok(())
     }
 
-    pub fn new<'a>() -> Self {
-        let mut config_paths = vec!["/etc/repoman"];
+    pub fn new<'a>() -> Result<Self, String> {
+        let mut config_paths = vec!["/etc/repoman/"];
 
         let mut path1 = String::new();
         let mut path2 = String::new(); //TODO: can this be inside of the if scope somehow?
@@ -80,7 +94,7 @@ impl Settings {
         let home = env::var("HOME");
         if let Ok(home) = home {
             path1.push_str(home.as_ref());
-            path1.push_str("/.repoman");
+            path1.push_str("/.repoman/");
             config_paths.insert(0, path1.as_ref());
 
             path2.push_str(home.as_ref());
@@ -101,7 +115,7 @@ impl Settings {
         let mut s = Config::new();
 
         if let Some(config_path) = config_path {
-            load_config_path(&mut s, config_path.as_ref());
+            load_config_path(&mut s, config_path.as_ref())?;
         } else {
             eprintln!("no config found.");
             eprintln!("please choose one of the following locations to create one:");
@@ -113,7 +127,7 @@ impl Settings {
             loop {
                 eprint!("> ");
 
-                io::stderr().flush().expect("failed to flush stdout");
+                io::stderr().flush().ok();
 
                 let mut path_num = String::new();
                 io::stdin()
@@ -133,16 +147,12 @@ impl Settings {
                 break;
             }
             let config_path = config_path.unwrap();
-            copy_default_config(config_path.as_ref());
-            load_config_path(&mut s, &config_path.as_ref());
+
+            copy_default_config(config_path.as_ref())?;
+            load_config_path(&mut s, &config_path.as_ref())?;
         }
 
-        match s.try_into() {
-            Ok(settings) => settings,
-            Err(error) => {
-                eprintln!("configuration error:\n{:#?}", error);
-                std::process::exit(1);
-            }
-        }
+        s.try_into()
+            .map_err(|error| format!("configuration error:\n{:#?}", error))
     }
 }
