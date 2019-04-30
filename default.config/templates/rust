@@ -1,0 +1,7 @@
+#!/bin/sh
+repo_path="$1"
+template_path="$2"
+
+cargo init $repo_path
+
+exit 0
