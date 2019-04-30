@@ -71,7 +71,7 @@ impl Settings {
             // since repo_path is the only one for now, this is fine
 
             if self.repo_path.find("~") == None {
-                continue;
+                break;
             }
 
             match home {
