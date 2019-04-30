@@ -15,7 +15,7 @@ use std::path::Path;
 use std::process::Command;
 
 fn check_prerequisites() -> Result<(), String> {
-    // TODO: check if git, cp etc. exist
+    // TODO: check if git, cp, ssh etc. exist
     Ok(())
 }
 
@@ -59,6 +59,46 @@ fn run() -> Result<(), String> {
     }
 }
 
+fn create_ssh_remote(settings: &Settings, repo_name: &str) -> Result<(), String> {
+    // * ssh: run "git init [path]" on [host] as [user]
+
+    let mut remote_repo_path = settings.ssh_remote_repo_path.clone();
+    if !remote_repo_path.ends_with("/") {
+        remote_repo_path.push_str("/");
+    }
+    remote_repo_path.push_str(&repo_name);
+    if settings.ssh_remote_add_git_suffix {
+        remote_repo_path.push_str(".git");
+    }
+
+    let mut command = String::from("git init ");
+    if settings.ssh_remote_use_bare {
+        command.push_str("--bare ");
+    }
+    command.push_str("\"");
+    command.push_str(&remote_repo_path);
+    command.push_str("\"");
+
+    // println!("running command {} on remote", command);
+
+    let mut child = Command::new("ssh")
+        .args(&[&settings.ssh_remote_host, &command])
+        .spawn()
+        .map_err(|err| format!("failed to start git init on remote:\n{:?}", err))?;
+
+    let status = child
+        .wait()
+        .map_err(|_| "awaiting git init on remote failed")?;
+
+    if !status.success() {
+        return Err(format!(
+            "git init failed with code: {}",
+            status.code().unwrap_or(-1)
+        ));
+    }
+    Ok(())
+}
+
 fn init(settings: &Settings, args: &clap::ArgMatches) -> Result<(), String> {
     // println!(
     //     "\x1b[32mcommand\x1b[0m: {}\n\x1b[33msettings\x1b[0m: {:#?}\n\x1b[34margs\x1b[0m: {:#?}",
@@ -67,9 +107,13 @@ fn init(settings: &Settings, args: &clap::ArgMatches) -> Result<(), String> {
 
     // TODO: allow ssh dirs
 
+    let repo_name = args.value_of("name").unwrap();
+
     let mut new_repo_dir = settings.repo_path.clone();
-    new_repo_dir.push_str("/");
-    new_repo_dir.push_str(args.value_of("name").unwrap());
+    if !new_repo_dir.ends_with("/") {
+        new_repo_dir.push_str("/");
+    }
+    new_repo_dir.push_str(repo_name.as_ref());
     new_repo_dir.push_str("/");
 
     // println!("path for new repo: {}", new_repo_dir);
@@ -77,6 +121,8 @@ fn init(settings: &Settings, args: &clap::ArgMatches) -> Result<(), String> {
     if Path::new(&new_repo_dir).exists() {
         return Err(format!("repo at {:?} already exists", new_repo_dir));
     }
+
+    let mut applied_template = false;
 
     if let Some(template) = args.value_of("template") {
         println!("template: {}", template);
@@ -100,7 +146,7 @@ fn init(settings: &Settings, args: &clap::ArgMatches) -> Result<(), String> {
         if is_dir {
             println!("copying template directory");
             let output = Command::new("cp")
-                .args(&["-Tr", &template_path, &new_repo_dir])
+                .args(&["-HTr", &template_path, &new_repo_dir])
                 .output()
                 .map_err(|_| "failed to copy template")?;
             if !output.status.success() {
@@ -121,17 +167,22 @@ fn init(settings: &Settings, args: &clap::ArgMatches) -> Result<(), String> {
             if !status.success() {
                 return Err(format!(
                     "setup script failed with code: {}",
-                    status.code().unwrap_or(1)
+                    status.code().unwrap_or(-1)
                 ));
             }
         }
+
+        applied_template = true;
     }
 
     let mut git_path = new_repo_dir.clone();
     git_path.push_str(".git");
 
-    if !Path::new(&git_path).exists() {
+    if Path::new(&git_path).exists() {
+        println!("Folder already contains a repo, so we don't need to create one.");
+    } else {
         println!("initializing new repo...");
+
         let mut child = Command::new("git")
             .args(&["init", &new_repo_dir])
             .spawn()
@@ -144,7 +195,9 @@ fn init(settings: &Settings, args: &clap::ArgMatches) -> Result<(), String> {
                 status.code().unwrap_or(1)
             ));
         }
+    }
 
+    if applied_template {
         println!("adding template files to git...");
         let mut child = Command::new("git")
             .args(&["add", "-A"])
@@ -159,26 +212,50 @@ fn init(settings: &Settings, args: &clap::ArgMatches) -> Result<(), String> {
                 status.code().unwrap_or(1)
             ));
         }
+    }
 
-        println!("commiting template files...");
+    println!("creating initial commit");
+    let mut child = Command::new("git")
+        .args(&["commit", "--allow-empty", "-m", "initial commit"])
+        .current_dir(&new_repo_dir)
+        .spawn()
+        .map_err(|err| format!("failed to start git commit:\n{:?}", err))?;
+
+    child.wait().map_err(|_| "awaiting git commit failed")?;
+
+    if settings.use_ssh_remote {
+        create_ssh_remote(settings, repo_name.as_ref())?;
+
+        let mut remote_location = settings.ssh_remote_host.clone();
+        remote_location.push(':');
+        remote_location.push_str(&settings.ssh_remote_repo_path);
+        if !remote_location.ends_with("/") {
+            remote_location.push_str("/");
+        }
+        remote_location.push_str(repo_name.as_ref());
+
+        println!("adding ssh remote...");
         let mut child = Command::new("git")
-            .args(&["commit", "-m", "commit template"])
+            .args(&["remote", "add", "origin", &remote_location])
             .current_dir(&new_repo_dir)
             .spawn()
             .map_err(|err| format!("failed to start git commit:\n{:?}", err))?;
 
-        // let status =
-        child.wait().map_err(|_| "awaiting git commit failed")?;
-        // if !status.success() {
-        //     return Err(format!(
-        //         "git commit failed with code: {}",
-        //         status.code().unwrap_or(1)
-        //     ));
-        // }
-    }
+        child
+            .wait()
+            .map_err(|err| format!("awaiting git remote add failed:\n{:?}", err))?;
 
-    // ? 5. if remote configured:
-    //      * setup remote
+        println!("pushing to ssh remote...");
+        let mut child = Command::new("git")
+            .args(&["push", "--set-upstream", "origin", "master"])
+            .current_dir(&new_repo_dir)
+            .spawn()
+            .map_err(|err| format!("failed to start git commit:\n{:?}", err))?;
+
+        child
+            .wait()
+            .map_err(|err| format!("awaiting git remote add failed:\n{:?}", err))?;
+    }
 
     Ok(())
 }

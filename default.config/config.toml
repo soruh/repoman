@@ -1,1 +1,15 @@
-repo_path = "~/repositories"
+# where should local repositories be created
+repo_path = "~/git"
+
+# should repositories also be created on a ssh remote?
+# (this will not work with a user that has git-shell as its login shell)
+use_ssh_remote = false 
+# on which host should ssh remotes be created?
+ssh_remote_host = "user@example.host"
+# where on the ssh remote should local repositories be created
+ssh_remote_repo_path = "/home/user/git"
+# should ssh remotes be created as "bare repositories"?
+ssh_remote_use_bare = true
+# should repositories on the remote be suffixed with ".git"?
+ssh_remote_add_git_suffix = true
+

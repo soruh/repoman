@@ -7,8 +7,15 @@ use std::process::Command;
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
-    pub repo_path: String,
     pub config_path: String,
+
+    pub repo_path: String,
+
+    pub use_ssh_remote: bool,
+    pub ssh_remote_host: String,
+    pub ssh_remote_repo_path: String,
+    pub ssh_remote_use_bare: bool,
+    pub ssh_remote_add_git_suffix: bool,
 }
 
 fn load_config_path(s: &mut Config, config_path: &str) -> Result<(), String> {
@@ -38,7 +45,7 @@ fn copy_default_config(config_path: &str) -> Result<(), String> {
     fs::create_dir_all(&config_path).expect("failed to mkdir");
 
     let output = Command::new("cp")
-        .args(&["-Tr", &default_config_path.to_string_lossy(), config_path])
+        .args(&["-HTr", &default_config_path.to_string_lossy(), config_path])
         .output()
         .expect("failed to copy default config");
 
@@ -66,8 +73,6 @@ impl Settings {
             if self.repo_path.find("~") == None {
                 continue;
             }
-
-            // TODO: check if path is local (no method in "url")
 
             match home {
                 None => {
